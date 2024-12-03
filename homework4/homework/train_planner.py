@@ -50,8 +50,8 @@ def train(
     model = model.to(device)
     model.train()
 
-    train_data = road_dataset.load_data("road_data/train", shuffle=True, batch_size=batch_size, num_workers=2)
-    val_data = road_dataset.load_data("road_data/val", shuffle=False)
+    train_data = road_dataset.load_data("drive_data/train", shuffle=True, batch_size=batch_size, num_workers=2)
+    val_data = road_dataset.load_data("drive_data/val", shuffle=False)
 
     # create loss function and optimizer
     loss_func = torch.nn.CrossEntropyLoss()
