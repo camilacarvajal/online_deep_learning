@@ -58,16 +58,14 @@ def train(
 
     '''
     #set up tensorboard
-    writer = tb.SummaryWriter(log_dir="logs")
-
     n_track= 10 #feed in "empty" tracks
     dummy_track_left = torch.zeros(1, n_track, 2)
     dummy_track_right = torch.zeros(1, n_track, 2)  
-    writer.add_graph(model, (dummy_track_left, dummy_track_right))
-    
-    writer.add_images("train_images", torch.stack([train_data[i][0] for i in range(32)]))
-
-    writer.flush() #this actually writes to tensorboard
+    dummy_track_left = dummy_track_left.type(torch.float32).to(device)  
+    dummy_track_right = dummy_track_right.type(torch.float32).to(device)
+    logger.add_graph(model, (dummy_track_left, dummy_track_right))
+    logger.add_images("train_images", torch.stack([train_data[i][0] for i in range(32)]))
+    logger.flush() #this actually writes to tensorboard
     '''
 
     # create loss function and optimizer
@@ -95,8 +93,6 @@ def train(
             track_right = batch.get("track_right").to(device)
             waypoints = batch.get("waypoints").to(device)
             waypoints_mask = batch.get("waypoints_mask").to(device)
-            print(track_left.shape)
-            print(track_right.shape)
 
             #depednign on which part you need different data for pred
             pred = model(track_left, track_right)

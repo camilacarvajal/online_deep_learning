@@ -10,21 +10,6 @@ INPUT_STD = [0.2064, 0.1944, 0.2252]
 
 
 class MLPPlanner(nn.Module):
-    class Block(torch.nn.Module):
-      def __init__(self, in_channels, out_channels, stride):
-          super().__init__()
-          kernel_size = 3
-          padding = (kernel_size - 1) // 2
-          self.c1 = torch.nn.Conv1d(in_channels, out_channels, kernel_size, stride, padding)
-          self.c2 = torch.nn.Conv1d(out_channels, out_channels, kernel_size, 1, padding)
-          self.relu = torch.nn.ReLU()
-          self.norm1 = torch.nn.BatchNorm1d(out_channels)
-          self.norm2 = torch.nn.BatchNorm1d(out_channels)
-
-      def forward(self, x):
-          x = self.relu(self.norm1(self.c1(x)))
-          x = self.relu(self.norm2(self.c2(x)))
-    
     def __init__(
         self,
         n_track: int = 10,
@@ -44,23 +29,17 @@ class MLPPlanner(nn.Module):
         self.n_track = n_track
         self.n_waypoints = n_waypoints
 
-        c1 = 64
+        cnn_layers = []
+        kernel_size = 3
 
-        cnn_layers = [
-            #first special layer
-            torch.nn.Conv1d(20, c1, kernel_size=11, stride=2, padding=5),
-            torch.nn.ReLU()
-        ]
+        cnn_layers.append(torch.nn.Conv1d(2 * n_track, 3, kernel_size, 1, (kernel_size-1)//2))
+        cnn_layers.append(torch.nn.ReLU())
 
-        for _ in range(n_blocks):
-            c2 = c1 * 2
-            cnn_layers.append(self.Block(c1, c2, stride = 4))
-            c1=c2
+        cnn_layers.append(torch.nn.Conv1d(3, n_waypoints, kernel_size, 1, (kernel_size-1)//2))
+        cnn_layers.append(torch.nn.ReLU())
         
-        cnn_layers.append(torch.nn.Flatten())  # Flatten the output before the linear layer
-        linear_input_size = c1 * (n_track * 2) // (2 ** (n_blocks+1)) - 128
-        cnn_layers.append(torch.nn.Linear(linear_input_size , 6))
         self.network = torch.nn.Sequential(*cnn_layers)
+
 
     def forward(
         self,
@@ -81,21 +60,8 @@ class MLPPlanner(nn.Module):
         Returns:
             torch.Tensor: future waypoints with shape (b, n_waypoints, 2)
         """
-        # optional: normalizes the input
-        #z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
-
-
-        # Reshape the output for classification -
-        concat = torch.cat([track_left, track_right], dim=1)
-        
-        output = self.network(concat)
-
-        #Reshape the output to (b, -1)
-        output = output.view(output.shape[0], -1) 
-
-        output = output.reshape(output.shape[0], self.n_waypoints, 2)  
-        return output
-
+        x = torch.cat([track_left, track_right], dim=1)
+        return self.network(x)
 
 class TransformerPlanner(nn.Module):
     class DownBlock(torch.nn.Module):
