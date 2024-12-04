@@ -56,6 +56,7 @@ def train(
     train_data = road_dataset.load_data("drive_data/train", shuffle=True, batch_size=batch_size, num_workers=num_workers)
     val_data = road_dataset.load_data("drive_data/val", shuffle=False)
 
+    '''
     #set up tensorboard
     writer = tb.SummaryWriter(log_dir="logs")
 
@@ -67,11 +68,13 @@ def train(
     writer.add_images("train_images", torch.stack([train_data[i][0] for i in range(32)]))
 
     writer.flush() #this actually writes to tensorboard
+    '''
 
     # create loss function and optimizer
-    loss_func = torch.nn.CrossEntropyLoss()
-    loss_func_depth = torch.nn.MSELoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    loss_func = torch.nn.CrossEntropyLoss(reduction="mean")
+    l2_lambda = 0.005  # Adjust the regularization strength
+    l2_regularization = sum(p.pow(2).sum() for p in model.parameters())
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-3)
 
     global_step = 0
     metrics = {"train_acc": [], "val_acc": []}
@@ -80,7 +83,6 @@ def train(
 
     # training loop
     for epoch in range(num_epoch):
-        train_detection.reset()
         # clear metrics at beginning of epoch
         for key in metrics:
             metrics[key].clear()
@@ -88,55 +90,44 @@ def train(
         model.train()
 
         for batch in train_data:
-            image = batch["image"].to(device)
-            depth = batch["depth"].to(device)
-            track = batch["track"].to(device)
-            #these are the predictions
-            logits, pdepth = model(image)
-            
-            loss_val = loss_func(logits, track)
-            pdepth = pdepth.squeeze(1)
-            loss_val_depth = loss_func_depth(pdepth, depth)
-            
+            image = batch.get("image").to(device)
+            track_left = batch.get("track_left").to(device)
+            track_right = batch.get("track_right").to(device)
+            waypoints = batch.get("waypoints").to(device)
+            waypoints_mask = batch.get("waypoints_mask").to(device)
+            print(track_left.shape)
+            print(track_right.shape)
+
+            #depednign on which part you need different data for pred
+            pred = model(track_left, track_right)
+          
+            loss_val = loss_func(pred, label)
             optimizer.zero_grad()
-            totalloss = 1 * (loss_val_depth + 10) * loss_val
-            totalloss.backward()
+            loss_val.backward()
             optimizer.step()
             global_step += 1
-            train_detection.add(logits.argmax(1), track, pdepth, depth)
 
         # disable gradient computation and switch to evaluation mode
         with torch.inference_mode():
             model.eval()
 
-            for batch in val_data:
-                image = batch["image"].to(device)
-                depth = batch["depth"].to(device)
-                track = batch["track"].to(device)
-                logits, pdepth = model(image)
+            for img, label in val_data:
+                img, label = img.to(device), label.to(device)
 
-                loss_val = loss_func(logits, track)
-                
-                pdepth = pdepth.squeeze(1)
-                
-                loss_val_depth = loss_func_depth(pdepth, depth)
-                totalloss = loss_val + loss_val_depth
-                metrics["val_acc"].append(totalloss)
-
+                pred = model(img)
+                loss_val = loss_func(pred, label)
+                metrics["val_acc"].append(loss_val)
 
         # log average train and val accuracy to tensorboard
         epoch_train_acc = torch.as_tensor(metrics["train_acc"]).mean()
         epoch_val_acc = torch.as_tensor(metrics["val_acc"]).mean()
-        #returns a dict (accuracy, iou)
-        train_epoch = train_detection.compute()
+
         # print on first, last, every 10th epoch
         if epoch == 0 or epoch == num_epoch - 1 or (epoch + 1) % 10 == 0:
             print(
                 f"Epoch {epoch + 1:2d} / {num_epoch:2d}: "
                 f"train_acc={epoch_train_acc:.4f} "
-                f"val_acc={epoch_val_acc:.4f} "
-                f"Accuracy={train_epoch['accuracy']:.4f} "
-                f"iou={train_epoch['iou']:.4f} "
+                f"val_acc={epoch_val_acc:.4f}"
             )
 
     # save and overwrite the model in the root directory for grading

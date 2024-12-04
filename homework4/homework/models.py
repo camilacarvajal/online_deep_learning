@@ -15,11 +15,11 @@ class MLPPlanner(nn.Module):
           super().__init__()
           kernel_size = 3
           padding = (kernel_size - 1) // 2
-          self.c1 = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
-          self.c2 = torch.nn.Conv2d(out_channels, out_channels, kernel_size, 1, padding)
+          self.c1 = torch.nn.Conv1d(in_channels, out_channels, kernel_size, stride, padding)
+          self.c2 = torch.nn.Conv1d(out_channels, out_channels, kernel_size, 1, padding)
           self.relu = torch.nn.ReLU()
-          self.norm1 = torch.nn.BatchNorm2d(out_channels)
-          self.norm2 = torch.nn.BatchNorm2d(out_channels)
+          self.norm1 = torch.nn.BatchNorm1d(out_channels)
+          self.norm2 = torch.nn.BatchNorm1d(out_channels)
 
       def forward(self, x):
           x = self.relu(self.norm1(self.c1(x)))
@@ -45,16 +45,19 @@ class MLPPlanner(nn.Module):
         self.n_track = n_track
         self.n_waypoints = n_waypoints
 
+        c1 = 4
+
         cnn_layers = [
             #first special layer
-            torch.nn.Conv2d(3, n_track, kernel_size=11, stride=2, padding=5),
+            torch.nn.Conv2d(n_track, n_waypoints, kernel_size=11, stride=2, padding=5),
             torch.nn.ReLU()
         ]
-        c1 = n_track
+
         for _ in range(n_blocks):
             c2 = c1 * 2
             cnn_layers.append(self.Block(c1, c2, stride = 2))
             c1=c2
+        
         #final layer adds a classifier
         cnn_layers.append(torch.nn.Conv2d(c1, 32, kernel_size=1))
         self.network = torch.nn.Sequential(*cnn_layers)
@@ -81,11 +84,12 @@ class MLPPlanner(nn.Module):
         """
         # optional: normalizes the input
         #z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
-        output = self.network(track_left, track_right)
+
 
         # Reshape the output for classification -
-        # using AdaptiveAvgPool2d to take the spatial average
-        output = nn.functional.adaptive_avg_pool2d(output, (1, 1))
+        concat = torch.cat([track_left, track_right], dim=1)
+        
+        output = self.network(concat)
 
         #TODO: DELETE? Reshape the output to (b, num_classes)
         #output = output.flatten(1)
