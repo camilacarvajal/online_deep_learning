@@ -23,7 +23,11 @@ class MLPPlanner(nn.Module):
 
       def forward(self, x):
           x = self.relu(self.norm1(self.c1(x)))
+          print("first x")
+          print(x.shape)
           x = self.relu(self.norm2(self.c2(x)))
+          print("second x")
+          print(x.shape)
           return x
     
     def __init__(
@@ -45,11 +49,11 @@ class MLPPlanner(nn.Module):
         self.n_track = n_track
         self.n_waypoints = n_waypoints
 
-        c1 = 4
+        c1 = 10
 
         cnn_layers = [
             #first special layer
-            torch.nn.Conv2d(n_track, n_waypoints, kernel_size=11, stride=2, padding=5),
+            torch.nn.Conv2d(128, 160, kernel_size=11, stride=2, padding=5),
             torch.nn.ReLU()
         ]
 
@@ -58,8 +62,7 @@ class MLPPlanner(nn.Module):
             cnn_layers.append(self.Block(c1, c2, stride = 2))
             c1=c2
         
-        #final layer adds a classifier
-        cnn_layers.append(torch.nn.Conv2d(c1, 32, kernel_size=1))
+        #cnn_layers.append(torch.nn.AdaptiveAvgPool2d(1))
         self.network = torch.nn.Sequential(*cnn_layers)
         self.classifier = nn.Linear(32, n_waypoints)  # Classifier for classification
 
