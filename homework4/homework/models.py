@@ -23,18 +23,13 @@ class MLPPlanner(nn.Module):
 
       def forward(self, x):
           x = self.relu(self.norm1(self.c1(x)))
-          print("first x")
-          print(x.shape)
           x = self.relu(self.norm2(self.c2(x)))
-          print("second x")
-          print(x.shape)
-          return x
     
     def __init__(
         self,
         n_track: int = 10,
         n_waypoints: int = 3,
-        n_blocks: int = 2,
+        n_blocks: int = 3,
     ):
         """
         Args:
@@ -62,8 +57,9 @@ class MLPPlanner(nn.Module):
             cnn_layers.append(self.Block(c1, c2, stride = 4))
             c1=c2
         
-        cnn_layers.append(torch.nn.AdaptiveAvgPool1d(6))
-        cnn_layers.append(torch.nn.Linear(c1, 32))
+        cnn_layers.append(torch.nn.Flatten())  # Flatten the output before the linear layer
+        linear_input_size = c1 * (n_track * 2) // (2 ** (n_blocks+1)) - 128
+        cnn_layers.append(torch.nn.Linear(linear_input_size , 6))
         self.network = torch.nn.Sequential(*cnn_layers)
 
     def forward(
