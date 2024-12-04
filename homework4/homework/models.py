@@ -29,16 +29,12 @@ class MLPPlanner(nn.Module):
         self.n_track = n_track
         self.n_waypoints = n_waypoints
 
-        cnn_layers = []
-        kernel_size = 3
-
-        cnn_layers.append(torch.nn.Conv1d(2 * n_track, 3, kernel_size, 1, (kernel_size-1)//2))
-        cnn_layers.append(torch.nn.ReLU())
-
-        cnn_layers.append(torch.nn.Conv1d(3, n_waypoints, kernel_size, 1, (kernel_size-1)//2))
-        cnn_layers.append(torch.nn.ReLU())
-        
-        self.network = torch.nn.Sequential(*cnn_layers)
+        c2 = 20
+        self.fc1 = nn.Linear(4*n_track, c2)
+        self.relu1 = nn.ReLU()
+        self.fc2 = nn.Linear(c2, c2)
+        self.relu2 = nn.ReLU()
+        self.fc3 = nn.Linear(c2, n_waypoints*2)
 
 
     def forward(
@@ -61,54 +57,23 @@ class MLPPlanner(nn.Module):
             torch.Tensor: future waypoints with shape (b, n_waypoints, 2)
         """
         x = torch.cat([track_left, track_right], dim=1)
-        return self.network(x)
+        x = x.reshape(x.size(0), -1)
+        x = self.fc1(x)
+        x = self.relu1(x)
+        x = self.fc2(x)
+        x = self.relu2(x)
+        x = self.fc3(x)  
+        x = x.reshape(x.size(0), self.n_waypoints, 2) # Reshape to (b, n_waypoints, 2)
+
+        return x
+
 
 class TransformerPlanner(nn.Module):
-    class DownBlock(torch.nn.Module):
-      def __init__(
-          self,
-          in_channels: int = 3,
-          out_channels: int = 3, 
-          stride = 1
-        ):
-          super().__init__()
-          self.network = torch.nn.Sequential(
-            torch.nn.Conv2d(in_channels, out_channels, kernel_size = 3, stride = stride, padding =1),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(out_channels, out_channels, kernel_size = 3, stride = 1, padding=1),
-            torch.nn.ReLU(),
-          )
-      def forward(self, x):
-          logits = self.network(x)
-          return logits
-
-    class UpBlock(torch.nn.Module):
-      def __init__(
-          self,
-          in_channels: int = 3,
-          out_channels: int = 3, 
-          stride = 1,
-          output_padding = 0
-        ):
-          super().__init__()
-          self.network = torch.nn.Sequential(
-            torch.nn.ConvTranspose2d(
-                in_channels, 
-                out_channels, 
-                kernel_size = 3, 
-                stride = stride, 
-                padding =1, 
-                output_padding= output_padding, # Adjust output_padding based on stride
-            ), 
-          )
-      def forward(self, x):
-          logits = self.network(x)
-          return logits
     def __init__(
         self,
         n_track: int = 10,
         n_waypoints: int = 3,
-        d_model: int = 64,
+        d_model: int = 20,
     ):
         super().__init__()
 
@@ -117,27 +82,22 @@ class TransformerPlanner(nn.Module):
 
         self.n_track = n_track
         self.n_waypoints = n_waypoints
+        self.d_model = d_model
 
-        cnn_layers = [
-            #first special layer
-            torch.nn.Conv2d(3, n_track, kernel_size=12, stride=2, padding=5),
-            torch.nn.ReLU()
-        ]
-        c1 = n_track
+        nhead = 5
+        dim_feedforward = 8
+        dropout=0.1
 
-        self.down1 = self.DownBlock(3, 16, stride = 1)
-        self.down2 = self.DownBlock(16, 32, stride = 2)
-        self.up1 = self.UpBlock(32,16, stride = 4, output_padding = 3)
-        self.up2 = self.UpBlock(16,16, stride = 1, output_padding = 0)
+        self.input_projection = nn.Linear(2, d_model) # Project from 2 (x, y) to d_model
 
-        self.downs = nn.ModuleList([self.down1, self.down2])
-        self.ups = nn.ModuleList([self.up1, self.up2])
-
-        self.depth = nn.Conv2d(16, 1, kernel_size=1)
-        self.logits = nn.Conv2d(16, n_waypoints, kernel_size=1)
-        self.network = torch.nn.Sequential(*cnn_layers)
-
-        self.query_embed = nn.Embedding(n_waypoints, d_model)
+        self.encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward, dropout=dropout)
+        self.transformer_encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=2)
+        
+        self.linear1 = nn.Linear(d_model, d_model)
+        
+        self.linear2 = nn.Linear(d_model, n_waypoints)
+        self.dropout1 = nn.Dropout(dropout)
+        self.relu = nn.ReLU()
 
     def forward(
         self,
@@ -158,7 +118,18 @@ class TransformerPlanner(nn.Module):
         Returns:
             torch.Tensor: future waypoints with shape (b, n_waypoints, 2)
         """
-        raise NotImplementedError
+        src = torch.cat([track_left, track_right], dim=1)
+        src = self.input_projection(src) # Project to d_model dimensions
+
+        src = src.permute(1, 0, 2)
+        output = self.transformer_encoder(src)
+        output = output.permute(1, 0, 2)
+        output = self.linear1(output)
+        output = self.dropout1(output)
+        output = self.relu(output)
+        output = self.linear2(output)
+        output = output.reshape(64, self.n_waypoints, 2)
+        return output
 
 
 class CNNPlanner(torch.nn.Module):
@@ -173,6 +144,17 @@ class CNNPlanner(torch.nn.Module):
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN), persistent=False)
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD), persistent=False)
 
+        cnn_layers = []
+        kernel_size = 3
+
+        cnn_layers.append(torch.nn.Conv1d(2 * n_track, 3, kernel_size, 1, (kernel_size-1)//2))
+        cnn_layers.append(torch.nn.ReLU())
+
+        cnn_layers.append(torch.nn.Conv1d(3, n_waypoints, kernel_size, 1, (kernel_size-1)//2))
+        cnn_layers.append(torch.nn.ReLU())
+        
+        self.network = torch.nn.Sequential(*cnn_layers)
+
     def forward(self, image: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Args:
@@ -184,7 +166,7 @@ class CNNPlanner(torch.nn.Module):
         x = image
         x = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
 
-        raise NotImplementedError
+        return self.network(x)
 
 
 MODEL_FACTORY = {
