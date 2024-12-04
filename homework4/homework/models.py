@@ -34,7 +34,7 @@ class MLPPlanner(nn.Module):
         self,
         n_track: int = 10,
         n_waypoints: int = 3,
-        n_blocks: int = 4,
+        n_blocks: int = 2,
     ):
         """
         Args:
@@ -49,22 +49,22 @@ class MLPPlanner(nn.Module):
         self.n_track = n_track
         self.n_waypoints = n_waypoints
 
-        c1 = 10
+        c1 = 64
 
         cnn_layers = [
             #first special layer
-            torch.nn.Conv2d(128, 160, kernel_size=11, stride=2, padding=5),
+            torch.nn.Conv1d(20, c1, kernel_size=11, stride=2, padding=5),
             torch.nn.ReLU()
         ]
 
         for _ in range(n_blocks):
             c2 = c1 * 2
-            cnn_layers.append(self.Block(c1, c2, stride = 2))
+            cnn_layers.append(self.Block(c1, c2, stride = 4))
             c1=c2
         
-        #cnn_layers.append(torch.nn.AdaptiveAvgPool2d(1))
+        cnn_layers.append(torch.nn.AdaptiveAvgPool1d(6))
+        cnn_layers.append(torch.nn.Linear(c1, 32))
         self.network = torch.nn.Sequential(*cnn_layers)
-        self.classifier = nn.Linear(32, n_waypoints)  # Classifier for classification
 
     def forward(
         self,
@@ -94,10 +94,10 @@ class MLPPlanner(nn.Module):
         
         output = self.network(concat)
 
-        #TODO: DELETE? Reshape the output to (b, num_classes)
-        #output = output.flatten(1)
+        #Reshape the output to (b, -1)
+        output = output.view(output.shape[0], -1) 
 
-        output = self.classifier(output)
+        output = output.reshape(output.shape[0], self.n_waypoints, 2)  
         return output
 
 

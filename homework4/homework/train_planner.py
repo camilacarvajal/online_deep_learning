@@ -71,7 +71,7 @@ def train(
     '''
 
     # create loss function and optimizer
-    loss_func = torch.nn.CrossEntropyLoss(reduction="mean")
+    loss_func = torch.nn.MSELoss()
     l2_lambda = 0.005  # Adjust the regularization strength
     l2_regularization = sum(p.pow(2).sum() for p in model.parameters())
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-3)
@@ -101,7 +101,7 @@ def train(
             #depednign on which part you need different data for pred
             pred = model(track_left, track_right)
           
-            loss_val = loss_func(pred, label)
+            loss_val = loss_func(pred, waypoints)
             optimizer.zero_grad()
             loss_val.backward()
             optimizer.step()
@@ -111,11 +111,15 @@ def train(
         with torch.inference_mode():
             model.eval()
 
-            for img, label in val_data:
-                img, label = img.to(device), label.to(device)
+            for batch in val_data:
+                image = batch.get("image").to(device)
+                track_left = batch.get("track_left").to(device)
+                track_right = batch.get("track_right").to(device)
+                waypoints = batch.get("waypoints").to(device)
+                waypoints_mask = batch.get("waypoints_mask").to(device)
 
-                pred = model(img)
-                loss_val = loss_func(pred, label)
+                pred = model(track_left, track_right)
+                loss_val = loss_func(pred, waypoints)
                 metrics["val_acc"].append(loss_val)
 
         # log average train and val accuracy to tensorboard
