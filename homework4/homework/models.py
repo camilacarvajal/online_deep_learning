@@ -83,23 +83,10 @@ class TransformerPlanner(nn.Module):
         self.n_track = n_track
         self.n_waypoints = n_waypoints
         self.d_model = d_model
-        dropout=0.1
 
-        self.d_model = d_model
-        self.n_waypoints = n_waypoints
-
-        self.input_projection = nn.Linear(2*20, d_model) 
-
-        self.transformer_encoder = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(
-                d_model=d_model, 
-                nhead=1,
-                dim_feedforward=d_model, 
-                dropout=dropout
-            ), 
-            num_layers=1
-        )
-        self.output_projection = nn.Linear(d_model, n_waypoints * 2)
+        self.input_projection = nn.Linear(2*n_track*2, d_model) 
+        self.linear1 = nn.Linear(d_model, d_model)
+        self.linear2 = nn.Linear(d_model, n_waypoints * 2) 
 
     def forward(
         self,
@@ -120,16 +107,19 @@ class TransformerPlanner(nn.Module):
         Returns:
             torch.Tensor: future waypoints with shape (b, n_waypoints, 2)
         """
-        src = torch.cat([track_left, track_right], dim=1) 
-        
-        src = src.view(src.size(0), -1)
+        # Concatenate and flatten track data
+        src = torch.cat([track_left, track_right], dim=1).flatten(start_dim=1) 
+
+        # Project to d_model dimensions
         src = self.input_projection(src)
-        output = self.transformer_encoder(src)
-        src = src.unsqueeze(1)
-        output = self.transformer_encoder(src)
-        output = output[:, -1, :]
-        output = self.output_projection(output) 
-        output = output.reshape(-1, self.n_waypoints, 2) 
+
+        # Simple feedforward layers (no Transformer)
+        output = self.linear1(src)
+        output = torch.relu(output)
+        output = self.linear2(output)
+
+        # Reshape to (batch_size, n_waypoints, 2)
+        output = output.reshape(-1, self.n_waypoints, 2)
         return output
 
 
