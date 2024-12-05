@@ -141,14 +141,9 @@ class CNNPlanner(torch.nn.Module):
         cnn_layers.append(torch.nn.Conv2d(3, 3, kernel_size, 1, (kernel_size-1)//2))
         cnn_layers.append(torch.nn.ReLU())
 
-        cnn_layers.append(torch.nn.Conv2d(3, n_waypoints, kernel_size, 1, (kernel_size-1)//2))
+        cnn_layers.append(torch.nn.Conv2d(3, n_waypoints * 2, kernel_size, 1, (kernel_size-1)//2))
         cnn_layers.append(torch.nn.ReLU())
 
-        # Add layers to reshape the output to (batch_size, n_waypoints, 2)
-        cnn_layers.append(torch.nn.AdaptiveAvgPool2d((1, 1))) # Reduce spatial dimensions to 1x1
-        cnn_layers.append(torch.nn.Flatten(start_dim=1)) # Flatten the tensor
-        cnn_layers.append(torch.nn.Linear(n_waypoints, n_waypoints * 2)) # Project to n_waypoints * 2
-        
         self.network = torch.nn.Sequential(*cnn_layers)
 
     def forward(self, image: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -162,7 +157,20 @@ class CNNPlanner(torch.nn.Module):
         x = image
         x = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
 
-        return self.network(x)
+        x = self.network(x)
+
+        #output should be shape (b, n, 2)
+        b = 64
+        h = 96
+        w = 128
+        n = 3
+        b, n, h, w = x.shape
+
+        # Extract the central point for each waypoint and reshape to (b, n_waypoints, 2)
+        x = x[:, :, h // 2, w // 2]  
+        x = x.reshape(b, self.n_waypoints, 2)  
+
+        return x
 
 
 MODEL_FACTORY = {
