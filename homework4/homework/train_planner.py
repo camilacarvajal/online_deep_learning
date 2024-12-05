@@ -96,9 +96,8 @@ def train(
 
             #depednign on which part you need different data for pred
             pred = model(track_left, track_right)
-            pred_xy = pred[:, :3, :2] 
               
-            loss_val = loss_func(pred_xy, waypoints)
+            loss_val = loss_func(pred, waypoints)
             optimizer.zero_grad()
             loss_val.backward()
             optimizer.step()

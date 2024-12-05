@@ -30,7 +30,7 @@ class MLPPlanner(nn.Module):
         self.n_waypoints = n_waypoints
 
         c2 = 20
-        self.fc1 = nn.Linear(4*n_track, c2)
+        self.fc1 = nn.Linear(2*n_track*2, c2)
         self.relu1 = nn.ReLU()
         self.fc2 = nn.Linear(c2, c2)
         self.relu2 = nn.ReLU()
@@ -83,21 +83,23 @@ class TransformerPlanner(nn.Module):
         self.n_track = n_track
         self.n_waypoints = n_waypoints
         self.d_model = d_model
-
-        nhead = 5
-        dim_feedforward = 8
         dropout=0.1
 
-        self.input_projection = nn.Linear(2, d_model) # Project from 2 (x, y) to d_model
+        self.d_model = d_model
+        self.n_waypoints = n_waypoints
 
-        self.encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward, dropout=dropout)
-        self.transformer_encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=2)
-        
-        self.linear1 = nn.Linear(d_model, d_model)
-        
-        self.linear2 = nn.Linear(d_model, n_waypoints)
-        self.dropout1 = nn.Dropout(dropout)
-        self.relu = nn.ReLU()
+        self.input_projection = nn.Linear(2*20, d_model) 
+
+        self.transformer_encoder = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                d_model=d_model, 
+                nhead=1,
+                dim_feedforward=d_model, 
+                dropout=dropout
+            ), 
+            num_layers=1
+        )
+        self.output_projection = nn.Linear(d_model, n_waypoints * 2)
 
     def forward(
         self,
@@ -118,17 +120,16 @@ class TransformerPlanner(nn.Module):
         Returns:
             torch.Tensor: future waypoints with shape (b, n_waypoints, 2)
         """
-        src = torch.cat([track_left, track_right], dim=1)
-        src = self.input_projection(src) # Project to d_model dimensions
-
-        src = src.permute(1, 0, 2)
+        src = torch.cat([track_left, track_right], dim=1) 
+        
+        src = src.view(src.size(0), -1)
+        src = self.input_projection(src)
         output = self.transformer_encoder(src)
-        output = output.permute(1, 0, 2)
-        output = self.linear1(output)
-        output = self.dropout1(output)
-        output = self.relu(output)
-        output = self.linear2(output)
-        output = output.reshape(64, self.n_waypoints, 2)
+        src = src.unsqueeze(1)
+        output = self.transformer_encoder(src)
+        output = output[:, -1, :]
+        output = self.output_projection(output) 
+        output = output.reshape(-1, self.n_waypoints, 2) 
         return output
 
 
