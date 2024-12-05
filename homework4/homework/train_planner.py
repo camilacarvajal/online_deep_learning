@@ -95,7 +95,9 @@ def train(
             waypoints_mask = batch.get("waypoints_mask").to(device)
 
             #depednign on which part you need different data for pred
-            pred = model(track_left, track_right)
+            pred = model(image)
+
+            pred = pred.reshape(-1, model.n_waypoints, 2)  # Reshape pred 
               
             loss_val = loss_func(pred, waypoints)
             optimizer.zero_grad()
@@ -114,7 +116,8 @@ def train(
                 waypoints = batch.get("waypoints").to(device)
                 waypoints_mask = batch.get("waypoints_mask").to(device)
 
-                pred = model(track_left, track_right)
+                pred = model(image)
+                pred = pred.reshape(-1, model.n_waypoints, 2)  # Reshape pred 
                 loss_val = loss_func(pred, waypoints)
                 metrics["val_acc"].append(loss_val)
 

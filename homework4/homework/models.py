@@ -138,11 +138,16 @@ class CNNPlanner(torch.nn.Module):
         cnn_layers = []
         kernel_size = 3
 
-        cnn_layers.append(torch.nn.Conv1d(2 * n_track, 3, kernel_size, 1, (kernel_size-1)//2))
+        cnn_layers.append(torch.nn.Conv2d(3, 3, kernel_size, 1, (kernel_size-1)//2))
         cnn_layers.append(torch.nn.ReLU())
 
-        cnn_layers.append(torch.nn.Conv1d(3, n_waypoints, kernel_size, 1, (kernel_size-1)//2))
+        cnn_layers.append(torch.nn.Conv2d(3, n_waypoints, kernel_size, 1, (kernel_size-1)//2))
         cnn_layers.append(torch.nn.ReLU())
+
+        # Add layers to reshape the output to (batch_size, n_waypoints, 2)
+        cnn_layers.append(torch.nn.AdaptiveAvgPool2d((1, 1))) # Reduce spatial dimensions to 1x1
+        cnn_layers.append(torch.nn.Flatten(start_dim=1)) # Flatten the tensor
+        cnn_layers.append(torch.nn.Linear(n_waypoints, n_waypoints * 2)) # Project to n_waypoints * 2
         
         self.network = torch.nn.Sequential(*cnn_layers)
 
